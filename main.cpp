@@ -8,6 +8,7 @@
 #include <charconv>
 #include <sstream>
 #include <set>
+#include <stack>
 #include <optional>
 
 /// Guu:
@@ -15,20 +16,21 @@
 /// Where to check:
 ///     https://mdkrajnak.github.io/ebnftest/
 /// Grammar:
-///     program ::= sub ('\n' (sub))*
-///     sub ::= ('\n')* SUB ' ' ID '\n' inst_list
-///     inst_list ::= (inst | inst ('\n')+ inst_list)
-///     inst ::= print | call | set
-///     print ::= PRINT ' ' param
-///     call ::= CALL ' ' ID
-///     set ::= SET ' ' ID ' ' param
-///     param ::= ID | NUM
-///     PRINT ::= "print"
-///     CALL ::= "call"
-///     SET ::= "set"
-///     SUB ::= "sub"
-///     ID ::= #"[a-zA-Z0-9]+"
-///     NUM ::= #"[0-9]+"
+///     program   ::= sub (NEWLINE sub)* NEWLINE*
+///     sub       ::= NEWLINE* SUB ' ' ID NEWLINE inst_list
+///     inst_list ::= (inst | inst NEWLINE+ inst_list)
+///     inst      ::= print | call | set
+///     print     ::= PRINT ' ' param
+///     call      ::= CALL ' ' ID
+///     set       ::= SET ' ' ID ' ' param
+///     param     ::= ID | NUM
+///     PRINT     ::= "print"
+///     CALL      ::= "call"
+///     SET       ::= "set"
+///     SUB       ::= "sub"
+///     ID        ::= #"[a-zA-Z0-9]+"
+///     NUM       ::= #"[0-9]+"
+///     NEWLINE   ::= "\n"
 
 
 // Just helper for std::visit, took from example https://en.cppreference.com/w/cpp/utility/variant/visit
@@ -96,12 +98,12 @@ Token<TT> get(const TokenVal& val)
 
 TokenType getTokenType(const TokenVal& val)
 {
-    return std::visit([&](auto&& t) { return t.type_; }, val);
+    return std::visit([](auto&& t) { return t.type_; }, val);
 }
 
 std::string getTokenValue(const TokenVal& val)
 {
-    return std::visit([&](auto&& t) { return t.value_; }, val);
+    return std::visit([](auto&& t) { return t.value_; }, val);
 }
 
 template<TokenType ...TT>
@@ -305,6 +307,18 @@ private:
     size_t currLine_;
 };
 
+template <typename T>
+struct IVisitor
+{
+    virtual void visit(const T&) = 0;
+};
+
+
+template<typename ...T>
+struct IVisitorOf : public IVisitor<T>...
+{
+};
+
 using Id = std::string;
 using Integer = std::int64_t;
 
@@ -328,65 +342,158 @@ struct Print
 
 using Instruction = std::variant<Set, Call, Print>;
 
-void print(const Instruction& i, std::ostream& os, int indent)
-{
-    auto printParam = [&](auto&& p){ os << p; };
-
-    os << std::string(indent, ' ');
-    std::visit(
-            overloaded{
-                [&](const Set& s)
-                {
-                    os << "(Set id=" << s.id_ << " param=";
-                    std::visit(printParam, s.param_);
-                    os << ")";
-                },
-                [&](const Call& c)
-                {
-                    os << "(Call id=" << c.id_ << ")";
-                },
-                [&](const Print& p)
-                {
-                    os << "(Print param=";
-                    std::visit(printParam, p.param_);
-                    os << ")";
-                }
-            },
-            i
-    );
-    os << std::endl;
-}
-
 struct Sub
 {
     size_t line_;
-    std::string name_;
+    Id name_;
     std::vector<Instruction> instructionsList_;
 };
-
-void print(const Sub& s, std::ostream& os, int indent)
-{
-    std::cout << std::string(indent, ' ') <<  "(Sub line=" << s.line_ << " name=" << s.name_ << ")" << std::endl;
-    for(auto&& i : s.instructionsList_)
-    {
-        print(i, os, indent+2);
-    }
-}
 
 struct Program
 {
     std::vector<Sub> subs_;
 };
 
-void printAst(const Program& prg)
+struct AstVisitor
+    : public IVisitorOf<Program, Sub, Instruction, Print, Call, Set, Param, Integer, Id>
 {
-    std::cout << "(Program)" << std::endl;
-
-    for(auto&& s : prg.subs_)
+public:
+    void visit(const Instruction& inst) override
     {
-        print(s, std::cout, 2);
+        std::visit([this](const auto& i)
+        {
+            using VisitorT = IVisitor<std::decay_t<decltype(i)>>;
+            static_cast<VisitorT*>(this)->visit(i);
+        }, inst);
     }
-}
+
+    void visit(const Param& param) override
+    {
+        std::visit([this](const auto& p)
+        {
+            using VisitorT = IVisitor<std::decay_t<decltype(p)>>;
+            static_cast<VisitorT*>(this)->visit(p);
+        }, param);
+    }
+
+    void visit(const Integer& integer) override
+    {}
+
+    void visit(const Id& id) override
+    {}
+};
+
+
+class AstPrinter
+    : public AstVisitor
+{
+    static constexpr int INDENT_STEP = 2;
+
+public:
+    template <typename AstNode>
+    void print(std::ostream& os, AstNode&& node)
+    {
+        os_ = os;
+        indent_ = 0;
+        visit(node);
+    }
+
+private:
+    using AstVisitor::visit;
+
+    std::ostream& os()
+    {
+        return os_.value().get();
+    }
+
+    void visit(const Program& program) override
+    {
+        indent();
+        os() << "(Program)" << std::endl;
+
+        addIndent();
+        for(auto&& s : program.subs_)
+        {
+            visit(s);
+        }
+        subIndent();
+    }
+
+    void visit(const Sub& sub) override
+    {
+        indent();
+        os() << "(Sub line=" << sub.line_ << ")" << std::endl;
+
+        addIndent();
+        visit(sub.name_);
+        for(auto&& i : sub.instructionsList_)
+        {
+            visit(i);
+        }
+        subIndent();
+    }
+
+    void visit(const Print& print) override
+    {
+        indent();
+        os() << "(Print)" << std::endl;
+        addIndent();
+        visit(print.param_);
+        subIndent();
+    }
+
+    void visit(const Call& call) override
+    {
+        indent();
+        os() << "(Call)" << std::endl;
+        addIndent();
+        visit(call.id_);
+        subIndent();
+    }
+
+    void visit(const Set& set) override
+    {
+        indent();
+        os() << "(Set)" << std::endl;
+        addIndent();
+        visit(set.id_);
+        visit(set.param_);
+        subIndent();
+    }
+
+    void visit(const Integer& integer) override
+    {
+        indent();
+        os() << "(Integer<" << integer << ">)" << std::endl;
+    }
+
+    void visit(const Id& id) override
+    {
+        indent();
+        os() << "(Id<" << id << ">)" << std::endl;
+    }
+
+private:
+    void indent()
+    {
+        os() << std::string(indent_, ' ');
+    }
+
+    void addIndent()
+    {
+        indent_ += INDENT_STEP;
+    }
+
+    void subIndent()
+    {
+        indent_ -= INDENT_STEP;
+    }
+
+private:
+    using Ref = std::reference_wrapper<std::ostream>;
+    std::optional<Ref> os_ = std::nullopt;
+    int indent_ = 0;
+};
 
 class Parser
 {
@@ -438,32 +545,42 @@ public:
         return result;
     }
 
-    ///     inst_list ::= (inst | inst ('\n')+ inst_list)
+    /// inst_list ::= (inst | inst ('\n')+ inst_list)
     std::vector<Instruction> instructionsList()
     {
         std::vector<Instruction> result;
 
-        result.emplace_back( instruction() );
+        auto inst = instruction();
+
+        if (not inst)
+        {
+            throw this->instructionExpected();
+        }
+
+        result.emplace_back( *inst );
 
         while (tokenHasType<TokenType::NEWLINE>(currToken_))
         {
             eat<TokenType::NEWLINE>();
 
-            if (not isInstruction(currToken_))
+            auto inst = instruction();
+
+            if (not inst)
             {
+                //It is fine, because we reach end of the instrument_list
                 break;
             }
 
-            result.emplace_back( instruction() );
+            result.emplace_back(std::move(*inst));
         }
 
         return result;
     }
 
     /// inst ::= print | call | set
-    Instruction instruction()
+    std::optional<Instruction> instruction()
     {
-        Instruction result;
+        std::optional<Instruction> result = {};
 
         std::visit(
                 overloaded {
@@ -484,10 +601,12 @@ public:
                     },
                     [&](auto&& token)
                     {
-                        instructionExpected(token);
+                        result = std::nullopt;
                     }
                 },
-                currToken_);
+                currToken_
+        );
+
         return result;
     }
 
@@ -560,29 +679,30 @@ private:
         }
         else
         {
-            unexpectedToken<TT>();
+            throw unexpectedToken<TT>();
         }
     }
 
     template <TokenType TT>
-    void unexpectedToken()
+    std::runtime_error  unexpectedToken()
     {
         std::ostringstream ss;
         ss << "Unexpected token in line " << tokenizer_.currentLine()
            << " [Expected = " << Token<TT>("") << ", "
            <<   "Actual = " << currToken_ << "]";
 
-        throw std::runtime_error(ss.str());
+        return std::runtime_error(ss.str());
     }
 
-    template <TokenType TT>
-    void instructionExpected(const Token<TT>& token)
+    std::runtime_error instructionExpected()
     {
         std::ostringstream ss;
         ss << "Instruction token expected in line " << tokenizer_.currentLine()
-           << ", but got " << token;
+           << ", but got ";
 
-        throw std::runtime_error(ss.str());
+        std::visit([&](auto&& t){ ss << t; }, currToken_);
+
+        return std::runtime_error(ss.str());
     }
 
 
@@ -592,17 +712,152 @@ private:
 };
 
 
+class Interpreter
+    : public AstVisitor
+{
+public:
+    Interpreter(Program prg)
+        : prg_(prg)
+    {
+        for(const Sub& s : prg_.subs_)
+        {
+            symbolsTable_[s.name_] = &s;
+        }
+    }
+
+    void interpret()
+    {
+        visit(findSub("main"));
+    }
+
+    void stepInto()
+    {
+
+    }
+
+    void stepOver()
+    {
+
+    }
+
+    void printVars()
+    {
+        std::cout << std::endl << "VARIABLES: " << std::endl;
+        for(auto&& [k, v] : globalMemory_)
+        {
+            std::cout << "    " << k << " = " << v << std::endl;
+        }
+        std::cout << std::endl;
+    }
+
+    void bt()
+    {
+        std::cout << std::endl << "Backtrace:" << std::endl;
+        while (backTrace_.size())
+        {
+            auto [name, line] = backTrace_.top();
+            backTrace_.pop();
+
+
+            std::cout << "    " << name << ":" << line << std::endl;
+        }
+        std::cout << std::endl;
+    }
+
+
+private:
+    using AstVisitor::visit;
+
+    void visit(const Program& program) override
+    {
+        throw std::runtime_error("Must never get this point");
+    }
+
+    void visit(const Sub& sub) override
+    {
+        backTrace_.push({sub.name_, sub.line_});
+
+        if (backTrace_.size() > 1024)
+        {
+            throw std::runtime_error("!!! STACK OVERFLOW !!!");
+        }
+
+        for(auto&& i : sub.instructionsList_)
+        {
+            visit(i);
+        }
+    }
+
+    void visit(const Print& print) override
+    {
+        std::visit(
+            overloaded {
+                [](Integer i){ std::cout << i << std::endl; },
+                [this](Id id){ std::cout << getVariable(id) << std::endl; }
+            },
+            print.param_
+        );
+    }
+
+    void visit(const Call& call) override
+    {
+        visit(findSub(call.id_));
+    }
+
+    void visit(const Set& set) override
+    {
+        std::visit(
+            overloaded {
+                [&](Integer i){ globalMemory_[set.id_] = i; },
+                [&](Id id){ globalMemory_[set.id_] = globalMemory_[id]; }
+            },
+            set.param_
+        );
+    }
+
+private:
+    Integer getVariable(Id id)
+    {
+        if (not globalMemory_.count(id))
+        {
+            throw std::runtime_error("Unknown variable id='" + id + "'. Stop.");
+        }
+
+        return globalMemory_.at(id);
+    }
+
+    const Sub& findSub(Id id)
+    {
+        if(not symbolsTable_.count(id))
+        {
+            throw std::runtime_error("Sub '" + id + "' was not found. Stop.");
+        }
+
+        return *symbolsTable_.at(id);
+    }
+
+private:
+    Program prg_;
+
+    std::stack< std::pair<Id, size_t> > backTrace_ = {};
+    std::unordered_map<Id, Integer> globalMemory_ = {};
+    std::unordered_map<Id, const Sub*> symbolsTable_ = {};
+};
+
 int main()
 {
     const std::string text =
             "sub foo\n"
             "set a 1\n"
             "sub main\n\n\n"
-            "set a 1\n"
+            "call foo\n"
             "print a\n"
-            "call main\n"
+            "set a 2\n"
+            "set b a\n"
+            "call walle\n"
             "sub walle\n"
-            "print a"
+            "print a\n"
+            "print b\n"
             ;
 
     try
@@ -623,7 +878,13 @@ int main()
         std::cout << "PARSER:" << std::endl;
         auto p = Parser(Tokenizer(text));
         auto res = p.buildAST();
-        printAst(res);
+
+        AstPrinter printer;
+        printer.print(std::cout, res);
+
+        Interpreter interpreter(res);
+
+        interpreter.interpret();
     }
     catch(const std::runtime_error& e)
     {
