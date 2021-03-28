@@ -376,10 +376,25 @@ public:
         }, param);
     }
 
-    void visit(const Integer& integer) override
+    void visit(const Integer&) override
     {}
 
-    void visit(const Id& id) override
+    void visit(const Id&) override
+    {}
+
+    void visit(const Call&) override
+    {}
+
+    void visit(const Set&) override
+    {}
+
+    void visit(const Print&) override
+    {}
+
+    void visit(const Sub&) override
+    {}
+
+    void visit(const Program&) override
     {}
 };
 
@@ -715,29 +730,65 @@ private:
 class Interpreter
     : public AstVisitor
 {
+    struct SymTable
+    {
+        size_t line_;
+        Id subName_;
+    };
+    struct Ret
+    {
+        const Ret& operator*() const { return *this; }
+    };
+
+
 public:
     Interpreter(Program prg)
         : prg_(prg)
     {
-        for(const Sub& s : prg_.subs_)
-        {
-            symbolsTable_[s.name_] = &s;
-        }
+        compile();
+        currentInstruction_ = std::cbegin(text_["main"]);
+
+        text_["__eof"].push_back(Ret{});
+        auto temp = std::cbegin(text_["__eof"]);
+        stack_.push(temp);
+        symbolsTable_[&(*temp)] = {};
     }
 
-    void interpret()
+    bool isEnd()
     {
-        visit(findSub("main"));
+        return finished_;
     }
 
     void stepInto()
     {
+        if (isEnd())
+        {
+            return;
+        }
 
+        std::visit(
+            [this](auto&& inst){ execute(*inst); },
+            *currentInstruction_
+        );
     }
 
     void stepOver()
     {
+        while (std::holds_alternative<Ret>(*currentInstruction_) && !isEnd())
+        {
+            stepInto();
+        }
 
+        if (isEnd())
+        {
+            return;
+        }
+
+        auto next = currentInstruction_+1;
+        while (currentInstruction_ != next)
+        {
+            stepInto();
+        }
     }
 
     void printVars()
@@ -753,66 +804,102 @@ public:
     void bt()
     {
         std::cout << std::endl << "Backtrace:" << std::endl;
-        while (backTrace_.size())
+
+        auto backTrace = stack_;
+        size_t num = 0;
+
+        auto symTable = symbolsTable_.at(&(*currentInstruction_));
+        std::cout << "    #" << num << " " << symTable.subName_ << "() at " << (symTable.line_) << std::endl;
+
+        num++;
+        while (backTrace.size() != 1)
         {
-            auto [name, line] = backTrace_.top();
-            backTrace_.pop();
+            const auto* addr = &(*backTrace.top());
+            auto symTable = symbolsTable_.at(addr);
+            backTrace.pop();
 
-
-            std::cout << "    " << name << ":" << line << std::endl;
+            std::cout << "    #" << num << " " << symTable.subName_ << "() at " << (symTable.line_) << std::endl;
+            num++;
         }
         std::cout << std::endl;
     }
 
-
 private:
-    using AstVisitor::visit;
-
-    void visit(const Program& program) override
+    void execute(const Call& call)
     {
-        throw std::runtime_error("Must never get this point");
+        stack_.push(currentInstruction_+1);
+        currentInstruction_ = std::cbegin(text_[call.id_]);
     }
 
-    void visit(const Sub& sub) override
-    {
-        backTrace_.push({sub.name_, sub.line_});
-
-        if (backTrace_.size() > 1024)
-        {
-            throw std::runtime_error("!!! STACK OVERFLOW !!!");
-        }
-
-        for(auto&& i : sub.instructionsList_)
-        {
-            visit(i);
-        }
-    }
-
-    void visit(const Print& print) override
+    void execute(const Print& print)
     {
         std::visit(
-            overloaded {
+            overloaded{
                 [](Integer i){ std::cout << i << std::endl; },
                 [this](Id id){ std::cout << getVariable(id) << std::endl; }
             },
             print.param_
         );
+        currentInstruction_++;
     }
 
-    void visit(const Call& call) override
-    {
-        visit(findSub(call.id_));
-    }
-
-    void visit(const Set& set) override
+    void execute(const Set& set)
     {
         std::visit(
-            overloaded {
-                [&](Integer i){ globalMemory_[set.id_] = i; },
-                [&](Id id){ globalMemory_[set.id_] = globalMemory_[id]; }
+            overloaded{
+                [&](Integer i){ setVariable(set.id_, i);  },
+                [&](Id id){ setVariable(set.id_, getVariable(id)); }
             },
             set.param_
         );
+        currentInstruction_++;
+    }
+
+    void execute(const Ret& ret)
+    {
+        currentInstruction_ = stack_.top();
+        stack_.pop();
+        if (stack_.size() == 0)
+        {
+            finished_ = true;
+        }
+    }
+
+
+private:
+    void compile()
+    {
+        visit(prg_);
+    }
+
+    using AstVisitor::visit;
+
+    void visit(const Program& program) override
+    {
+        for(auto&& s : program.subs_)
+        {
+            visit(s);
+        }
+    }
+
+    void visit(const Sub& sub) override
+    {
+        for(auto&& i : sub.instructionsList_)
+        {
+            std::visit(
+                [&](const auto& v)
+                {
+                    text_[sub.name_].push_back(&v);
+                },
+                i
+            );
+        }
+        text_[sub.name_].push_back(Ret{});
+
+        for(const auto& i : text_[sub.name_])
+        {
+            symbolsTable_[&i] = SymTable{ sub.line_, sub.name_ };
+        }
     }
 
 private:
@@ -826,22 +913,28 @@ private:
         return globalMemory_.at(id);
     }
 
-    const Sub& findSub(Id id)
+    void setVariable(Id id, Integer value)
     {
-        if(not symbolsTable_.count(id))
-        {
-            throw std::runtime_error("Sub '" + id + "' was not found. Stop.");
-        }
-
-        return *symbolsTable_.at(id);
+        globalMemory_[id] = value;
     }
+
 
 private:
     Program prg_;
 
-    std::stack< std::pair<Id, size_t> > backTrace_ = {};
     std::unordered_map<Id, Integer> globalMemory_ = {};
-    std::unordered_map<Id, const Sub*> symbolsTable_ = {};
+
+    using Code = std::variant<const Call*, const Set*, const Print*, Ret>;
+
+    std::unordered_map<Id, std::vector<Code>> text_ = {};
+    std::unordered_map<const Code*, SymTable> symbolsTable_;
+
+    using InstIter = decltype(decltype(text_)::value_type::second)::const_iterator;
+    InstIter currentInstruction_;
+
+    bool finished_ = false;
+
+    std::stack<InstIter> stack_;
 };
 
 int main()
@@ -884,7 +977,13 @@ int main()
 
         Interpreter interpreter(res);
 
-        interpreter.interpret();
+        interpreter.stepInto();
+        interpreter.bt();
+        interpreter.stepOver();
+        interpreter.stepOver();
+        interpreter.stepOver();
+        interpreter.stepOver();
+        interpreter.printVars();
     }
     catch(const std::runtime_error& e)
     {
