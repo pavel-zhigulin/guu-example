@@ -83,6 +83,8 @@ struct ProcDecl : Node
     std::string name_;
 };
 
+#undef NODE_CONSTRUCTOR
+
 namespace detail
 {
     using BaseVisitor =
@@ -110,6 +112,14 @@ struct Visitor
 #undef CASE
 
 #pragma GCC diagnostic pop
+    }
+
+    void visit(const Root& r)
+    {
+        for(const auto& c : r.children_)
+        {
+            visit(*c);
+        }
     }
 
     virtual ~Visitor() = default;

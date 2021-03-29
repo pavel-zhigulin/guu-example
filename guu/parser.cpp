@@ -37,7 +37,7 @@ std::unique_ptr<AST::Node> Parser::program()
 
     eatAll(TokenType::NEWLINE);
 
-    return std::move(result);
+    return result;
 }
 
 /// SPACE* cmd SPACE*
