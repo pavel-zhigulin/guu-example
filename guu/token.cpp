@@ -1,3 +1,4 @@
+#define SAVE_TOKEN_TYPES
 #include "token.h"
 #include <iostream>
 
@@ -16,21 +17,11 @@ std::ostream& operator<<(std::ostream& os, TokenType tt)
 #pragma GCC diagnostic error "-Wswitch"
 #endif
 
-#define CASE(TT) case TokenType::TT: return os << #TT
+#define CASE(TT) case TokenType::TT: return os << #TT;
 
     switch (tt)
     {
-        CASE(SUB);
-        CASE(PRINT);
-        CASE(SET);
-        CASE(CALL);
-        CASE(NUM);
-        CASE(ID);
-        CASE(NEWLINE);
-        CASE(SPACE);
-        CASE(PLUS);
-        CASE(MINUS);
-        CASE(EOL);
+        TOKEN_TYPES(CASE)
     }
 
 #ifdef __GNUC__

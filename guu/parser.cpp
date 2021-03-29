@@ -25,7 +25,7 @@ std::unique_ptr<AST::Node> Parser::tryParse(std::unique_ptr<AST::Node>(Parser::*
 /// program ::= statement (NEWLINE+ statement)*
 std::unique_ptr<AST::Node> Parser::program()
 {
-    auto result = std::make_unique<AST::Root>(Token());
+    auto result = construct<AST::Root>();
 
     result->children_.push_back( statement() );
 
@@ -71,7 +71,7 @@ std::unique_ptr<AST::Node> Parser::cmd()
 /// print ::= PRINT SPACE param
 std::unique_ptr<AST::Node> Parser::print()
 {
-    auto result = std::make_unique<AST::UnaryOp>(currToken_);
+    auto result = construct<AST::UnaryOp>();
     eat(TT::PRINT);
     eat(TT::SPACE);
     result->op_ = param();
@@ -81,10 +81,10 @@ std::unique_ptr<AST::Node> Parser::print()
 /// call ::= CALL SPACE ID
 std::unique_ptr<AST::Node> Parser::call()
 {
-    auto result = std::make_unique<AST::UnaryOp>(currToken_);
+    auto result = construct<AST::UnaryOp>();
     eat(TT::CALL);
     eat(TT::SPACE);
-    result->op_ = std::make_unique<AST::Param>(currToken_);
+    result->op_ = construct<AST::Param>();
     eat(TT::ID);
 
     return result;
@@ -93,12 +93,12 @@ std::unique_ptr<AST::Node> Parser::call()
 /// set ::= SET SPACE ID SPACE param
 std::unique_ptr<AST::Node> Parser::set()
 {
-    auto result = std::make_unique<AST::BinOp>(currToken_);
+    auto result = construct<AST::BinOp>();
     auto& binop = *result;
     eat(TT::SET);
     eat(TT::SPACE);
 
-    binop.op1_ = std::make_unique<AST::Param>(currToken_);
+    binop.op1_ = construct<AST::Param>();
     eat(TT::ID);
 
     eat(TT::SPACE);
@@ -110,7 +110,7 @@ std::unique_ptr<AST::Node> Parser::set()
 /// sub ::= SUB SPACE ID
 std::unique_ptr<AST::Node> Parser::sub()
 {
-    auto result = std::make_unique<AST::ProcDecl>(currToken_);
+    auto result = construct<AST::ProcDecl>();
     eat(TT::SUB);
     eat(TT::SPACE);
 
@@ -125,7 +125,7 @@ std::unique_ptr<AST::Node> Parser::param()
 {
     if (currToken_.type_ == TT::ID)
     {
-        auto result = std::make_unique<AST::Param>(currToken_);
+        auto result = construct<AST::Param>();
         eat(TT::ID);
         return result;
     }
@@ -149,11 +149,11 @@ std::unique_ptr<AST::Node> Parser::integer()
         value.append("-");
     }
 
-    auto tok = currToken_;
     value.append(currToken_.value_);
+    auto result = construct<AST::Param>(value);
     eat(TT::NUM);
 
-    return std::make_unique<AST::Param>(tok, value);
+    return result;
 }
 
 void Parser::eat(TokenType tt)

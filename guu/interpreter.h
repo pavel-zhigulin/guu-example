@@ -22,6 +22,11 @@ public:
 
     void interpret();
 
+    void stepInto();
+    void stepOver();
+    void bt() const;
+    void printVars() const;
+
 private:
     void compile();
 

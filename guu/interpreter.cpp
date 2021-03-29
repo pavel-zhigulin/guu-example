@@ -11,11 +11,11 @@ Interpreter::Interpreter(std::unique_ptr<AST::Node> program)
     : prg_(std::move(program))
 {
     compile();
+    jumpTo("main");
 }
 
 void Interpreter::interpret()
 {
-    jumpTo("main");
     while (!isEnd())
     {
         execute(*currentInstruction_);
@@ -181,6 +181,11 @@ std::string Interpreter::getVariable(const Interpreter::Address& address)
 
 void Interpreter::moveNext()
 {
+    if (isEnd())
+    {
+        return;
+    }
+
     currentInstruction_++;
     while (findProc(currProc_).cend() == currentInstruction_)
     {
@@ -217,6 +222,59 @@ void Interpreter::jumpTo(const Interpreter::Address& address)
 bool Interpreter::isEnd() const
 {
     return stack_.size() == 0;
+}
+
+void Interpreter::bt() const
+{
+    if (isEnd())
+    {
+        return;
+    }
+
+    auto backTrace = stack_;
+    auto sub = currProc_;
+
+    std::cout << "#0  " << sub << " at " << (*currentInstruction_)->line_ << std::endl;
+
+    int num = 1;
+    while (backTrace.size() != 1)
+    {
+        auto [sub, i] = backTrace.top();
+        backTrace.pop();
+        std::cout << "#" << (num++) << "  " << sub << " at " << (*(i-1))->line_ << std::endl;
+    }
+}
+
+void Interpreter::stepOver()
+{
+    if (isEnd())
+    {
+        return;
+    }
+
+    auto ss = stack_.size();
+    do
+    {
+        execute(*currentInstruction_);
+    } while (stack_.size() > ss);
+}
+
+void Interpreter::stepInto()
+{
+    if (isEnd())
+    {
+        return;
+    }
+
+    execute(*currentInstruction_);
+}
+
+void Interpreter::printVars() const
+{
+    for(auto&& [k, v] : globalMemory_)
+    {
+        std::cout << k << " = " << v << std::endl;
+    }
 }
 
 }

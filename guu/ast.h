@@ -31,7 +31,7 @@ enum class NodeType
 
 struct Node
 {
-    explicit Node(Token t, NodeType nt) : type_(nt), token_(std::move(t)) {}
+    explicit Node(Token t, NodeType nt, size_t line) : type_(nt), token_(std::move(t)), line_(line) {}
 
     Node(const Node&) = delete;
     Node& operator=(const Node&) = delete;
@@ -41,11 +41,12 @@ struct Node
 
     NodeType type_;
     Token token_;
+    size_t line_;
 
     virtual ~Node() = default;
 };
 
-#define NODE_CONSTRUCTOR(x) x(Token t) : Node(std::move(t), NodeType::x)
+#define NODE_CONSTRUCTOR(x) x(Token t, size_t line) : Node(std::move(t), NodeType::x, line)
 
 struct Root : Node
 {
@@ -69,7 +70,7 @@ struct UnaryOp : Node
 struct Param : Node
 {
     NODE_CONSTRUCTOR(Param) {}
-    Param(Token t, std::string val) : Param(t)
+    Param(Token t, size_t line, std::string val) : Param(t, line)
     {
         value_ = std::move(val);
     }
@@ -177,7 +178,12 @@ private:
     int indent_ = 0;
 };
 
+#ifdef SAVE_NODE_TYPES
+#undef SAVE_NODE_TYPES
+#else
 #undef NODE_TYPES
+#endif
+
 #undef COMMA_LEFT
 #undef COMMA_RIGHT
 

@@ -15,7 +15,7 @@ int main()
 {
     const std::string text =
             "sub foo   \n"
-            "set a 1\n"
+            "call bar\n"
             "sub main\n"
             "call foo\n"
             "print 1\n\n\n"
@@ -26,6 +26,10 @@ int main()
             "sub walle\n"
             "print a\n"
             "print b\n"
+            "sub bar\n"
+            "call zoo\n"
+            "sub zoo\n"
+            "set a 1\n"
             ;
 
     try
@@ -51,6 +55,17 @@ int main()
         std::cout << std::endl;
         std::cout << "Running..." << std::endl;
         Interpreter interpreter(std::move(ast));
+        interpreter.stepInto();
+        interpreter.stepInto();
+        interpreter.printVars();
+        interpreter.bt();
+
+        std::cout << std::endl;
+
+        interpreter.stepOver();
+        interpreter.printVars();
+        interpreter.bt();
+
         interpreter.interpret();
     }
     catch(const std::runtime_error& e)

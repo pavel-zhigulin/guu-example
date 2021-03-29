@@ -6,6 +6,19 @@
 namespace Guu
 {
 
+#define TOKEN_TYPES(_) \
+    _(SUB) \
+    _(PRINT) \
+    _(SET) \
+    _(CALL) \
+    _(NUM) \
+    _(ID) \
+    _(NEWLINE) \
+    _(SPACE) \
+    _(PLUS) \
+    _(MINUS) \
+    _(EOL) \
+
 ///     SUB        ::= "sub"
 ///     PRINT      ::= "print"
 ///     SET        ::= "set"
@@ -16,20 +29,14 @@ namespace Guu
 ///     SPACE      ::= ' '
 ///     PLUS       ::= '+'
 ///     MINUS      ::= '-'
+
+#define RIGHT_COMMA(x) x,
 enum class TokenType
 {
-    SUB,
-    PRINT,
-    SET,
-    CALL,
-    NUM,
-    ID,
-    NEWLINE,
-    SPACE,
-    PLUS,
-    MINUS,
-    EOL
+    TOKEN_TYPES(RIGHT_COMMA)
 };
+#undef RIGHT_COMMA
+
 std::ostream& operator<<(std::ostream& os, TokenType tt);
 
 struct Token
@@ -49,5 +56,12 @@ struct Token
 };
 std::ostream& operator<<(std::ostream& os, const Token& token);
 
+#ifdef SAVE_TOKEN_TYPES
+#undef SAVE_TOKEN_TYPES
+#else
+#undef TOKEN_TYPES
+#endif
+
 }
+
 

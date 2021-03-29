@@ -58,6 +58,12 @@ private:
     std::unique_ptr<AST::Node> integer();
 
 private:
+    template<typename Node, typename ...Args>
+    std::unique_ptr<Node> construct(Args... args)
+    {
+        return std::make_unique<Node>(currToken_, tokenizer_.currentLine(), args...);
+    }
+
     std::unique_ptr<AST::Node> tryParse(std::unique_ptr<AST::Node>(Parser::*memFn)());
 
     void eat(TokenType tt);
