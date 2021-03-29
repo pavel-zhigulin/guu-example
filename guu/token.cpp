@@ -6,8 +6,15 @@ namespace Guu
 
 std::ostream& operator<<(std::ostream& os, TokenType tt)
 {
+#ifdef __MSC_VER
+#pragma warning( push )
+#pragma warning( error: 4062)
+#endif
+
+#ifdef __GNUC__
 #pragma GCC diagnostic push
 #pragma GCC diagnostic error "-Wswitch"
+#endif
 
 #define CASE(TT) case TokenType::TT: return os << #TT
 
@@ -26,7 +33,13 @@ std::ostream& operator<<(std::ostream& os, TokenType tt)
         CASE(EOL);
     }
 
+#ifdef __GNUC__
 #pragma GCC diagnostic pop
+#endif
+
+#ifdef __MSC_VER
+#pragma warning(pop)
+#endif
 
     return os;
 }

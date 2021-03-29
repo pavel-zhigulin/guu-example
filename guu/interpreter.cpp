@@ -16,7 +16,7 @@ Interpreter::Interpreter(std::unique_ptr<AST::Node> program)
 void Interpreter::interpret()
 {
     jumpTo("main");
-    while (not isEnd())
+    while (!isEnd())
     {
         execute(*currentInstruction_);
     }

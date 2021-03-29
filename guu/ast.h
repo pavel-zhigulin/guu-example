@@ -101,8 +101,15 @@ struct Visitor
 
     void visit(const Node& n)
     {
+#ifdef __MSC_VER
+#pragma warning( push )
+#pragma warning( error: 4062)
+#endif
+
+#ifdef __GNUC__
 #pragma GCC diagnostic push
 #pragma GCC diagnostic error "-Wswitch"
+#endif
 
 #define CASE(x) case NodeType::x: visit(static_cast<const x&>(n)); break;
         switch (n.type_)
@@ -111,7 +118,13 @@ struct Visitor
         }
 #undef CASE
 
+#ifdef __GNUC__
 #pragma GCC diagnostic pop
+#endif
+
+#ifdef __MSC_VER
+#pragma warning( pop )
+#endif
     }
 
     void visit(const Root& r)

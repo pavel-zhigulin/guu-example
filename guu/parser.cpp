@@ -29,7 +29,7 @@ std::unique_ptr<AST::Node> Parser::program()
 
     result->children_.push_back( statement() );
 
-    while (not tokenizer_.isEnd())
+    while (!tokenizer_.isEnd())
     {
         eatAll(TokenType::NEWLINE);
         result->children_.push_back(statement());
@@ -60,7 +60,7 @@ std::unique_ptr<AST::Node> Parser::cmd()
     else if(result = tryParse(&Parser::set);   result){}
     else if(result = tryParse(&Parser::sub);   result){}
 
-    if (not result)
+    if (!result)
     {
         throw unexpectedToken("cmd");
     }
