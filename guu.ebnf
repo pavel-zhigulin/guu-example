@@ -1,0 +1,56 @@
+// Guu GRAMMAR
+//    Where to check:  https://mdkrajnak.github.io/ebnftest/
+
+program ::= (fn eol*)+
+
+fn ::= "fn" SPACE spaces fn_name fn_args fn_ret o_brace fn_content c_brace
+fn_name ::= id
+fn_args ::= o_paren (spaces | fn_arg (comma fn_arg)*) c_paren
+fn_arg ::= id colon type_id
+fn_ret ::= spaces MINUS GT spaces type_id
+fn_content ::= statement+
+
+statement ::= eol | var_decl
+var_decl ::= type_id id eq expr eol
+expr ::= const_decl semicolon
+const_decl ::= spaces const_num | const_str | const_array
+const_array ::= o_brack const_decl (comma const_decl)* comma? c_brack
+const_num ::= type_int
+const_str ::= spaces STRING_LITERAL
+
+type_int ::= spaces NUM
+type_id ::= id (o_brack (int|id) c_brack)?
+
+spaces ::= SPACE* | SPACE* EOL spaces
+id ::= spaces ID
+colon ::= spaces COLON
+o_brace ::= spaces O_BRACE
+c_brace ::= spaces C_BRACE
+o_paren ::= spaces O_PAREN
+c_paren ::= spaces C_PAREN
+o_brack ::= spaces O_BRACK
+c_brack ::= spaces C_BRACK
+int ::= spaces NUM
+eol ::= spaces EOL
+eq ::= spaces EQ
+comma ::= spaces COMMA
+semicolon ::= spaces SEMICOLON
+
+EOL ::= '\n'
+SPACE ::= ' '
+COLON ::= ':'
+SEMICOLON ::= ';'
+MINUS ::= '-'
+GT ::= '>'
+COMMA ::= ','
+EQ ::= '='
+O_BRACE ::= '{'
+C_BRACE ::= '}'
+O_BRACK ::= '['
+C_BRACK ::= ']'
+O_PAREN ::= '('
+C_PAREN ::= ')'
+NUM ::= #'[0-9]+'
+ESC_SEQ ::= #'\\[a-z\'\"\\]'
+ID ::= #'[a-zA-Z][_a-zA-Z0-9]*'
+STRING_LITERAL ::= '"' (#'[^"\n\\]' | ESC_SEQ)* '"' | "'" (#"[^'\n\\]" | ESC_SEQ)* "'"

@@ -2,19 +2,21 @@
 
 #include <iostream>
 #include <sstream>
+#include <cassert>
+
+#define UNEXPECTED_VAL(expected) unexpectedValue(expected, __PRETTY_FUNCTION__)
 
 namespace Guu
 {
 
-std::unique_ptr<AST::Node> Parser::tryParse(std::unique_ptr<AST::Node>(Parser::*memFn)())
+AST::Node::Ptr Parser::tryParse(AST::Node::Ptr (Parser::*memFn)())
 {
-    auto state = tokenizer_.getState();
+    auto state      = tokenizer_.getState();
     auto savedToken = currToken_;
     try
     {
         return (this->*memFn)();
-    }
-    catch(...)
+    } catch(...)
     {
         tokenizer_.restoreState(state);
         currToken_ = savedToken;
@@ -22,143 +24,137 @@ std::unique_ptr<AST::Node> Parser::tryParse(std::unique_ptr<AST::Node>(Parser::*
     }
 }
 
-/// program ::= statement (NEWLINE+ statement)*
-std::unique_ptr<AST::Node> Parser::program()
+// program ::= (fn eol*)+
+AST::Node::Ptr Parser::program()
 {
     auto result = construct<AST::Root>();
 
-    result->children_.push_back( statement() );
+    eatEmptyLines();
+    result->children_.push_back(fn());
 
-    while (!tokenizer_.isEnd())
+    // while(!tokenizer_.isEnd())
+    // {
+    //     eatAll(TokenType::NEWLINE);
+    //     result->children_.push_back(statement());
+    // }
+
+    eatEmptyLines();
+
+    assert(currToken_.type_ == TT::END);
+    return result;
+}
+
+// fn ::= "fn" SPACE spaces fn_name fn_args fn_ret o_brace fn_content c_brace
+AST::Node::Ptr Parser::fn()
+{
+    // "fn"
+    std::string fnStr = eatVal(TT::ID);
+    if(fnStr != "fn")
+        throw UNEXPECTED_VAL("fn");
+
+    // SPACE
+    eat(TT::SPACE);
+
+    // fn_name ::= id
+    std::string id = eatValueWithSpaces(TT::ID);
+
+    // fn_args ::= o_paren (spaces | fn_arg (comma fn_arg)*) c_paren
+    eatWithSpaces(TT::O_PAREN);
+
+    AST::Node::Ptr arg = nullptr;
+    AST::NodeVec fnArgs;
+    while((arg = fn_arg()))
     {
-        eatAll(TokenType::NEWLINE);
-        result->children_.push_back(statement());
+        fnArgs.emplace_back(std::move(arg));
     }
 
-    eatAll(TokenType::NEWLINE);
+    eatValueWithSpaces(TT::C_PAREN);
+
+    // fn_ret ::= spaces MINUS GT spaces type_id
+    eatWithSpaces(TT::MINUS);
+    eat(TT::GT);
+    auto retTypeId = type_id();
+
+    // o_brace fn_content c_brace
+    eatWithSpaces(TT::O_BRACE);
+
+    eatEmptyLines();
+
+    eatWithSpaces(TT::C_BRACE);
+
+    auto result = construct<AST::FnDef>(id, std::move(retTypeId), std::move(fnArgs));
 
     return result;
 }
 
-/// SPACE* cmd SPACE*
-std::unique_ptr<AST::Node> Parser::statement()
+// fn_arg ::= id colon type_id
+AST::Node::Ptr Parser::fn_arg()
 {
     eatAll(TT::SPACE);
-    auto result = cmd();
-    eatAll(TT::SPACE);
 
-    return result;
+    if(currToken_.type_ == TT::C_PAREN)
+        return nullptr;
+    if(currToken_.type_ == TT::COMMA)
+        eat(TT::COMMA);
+
+    std::string id = eatValueWithSpaces(TT::ID);
+    eatWithSpaces(TT::COLON);
+    return construct<AST::Variable>(id, type_id());
 }
 
-/// cmd ::= print | call | set | sub
-std::unique_ptr<AST::Node> Parser::cmd()
+// type_id ::= id (o_brack (int|id) c_brack)?
+AST::Node::Ptr Parser::type_id()
 {
-    std::unique_ptr<AST::Node> result;
+    auto result = construct<AST::TypeId>(eatValueWithSpaces(TT::ID, EatSpaces::Both));
 
-    if     (result = tryParse(&Parser::print); result){}
-    else if(result = tryParse(&Parser::call);  result){}
-    else if(result = tryParse(&Parser::set);   result){}
-    else if(result = tryParse(&Parser::sub);   result){}
-
-    if (!result)
+    if(currToken_.type_ == TT::O_BRACK)
     {
-        throw unexpectedToken("cmd");
+        result->isArray_ = true;
+
+        eatWithSpaces(TT::O_BRACK, EatSpaces::Right);
+        if(currToken_.type_ == TT::NUM)
+        {
+            result->arraySize_ = eatValueWithSpaces(TT::NUM, EatSpaces::Both);
+        }
+        else
+        {
+            result->arraySize_ = eatValueWithSpaces(TT::ID, EatSpaces::Both);
+        }
+        eat(TT::C_BRACK);
     }
 
     return result;
 }
 
-/// print ::= PRINT SPACE param
-std::unique_ptr<AST::Node> Parser::print()
-{
-    auto result = construct<AST::UnaryOp>();
-    eat(TT::PRINT);
-    eat(TT::SPACE);
-    result->op_ = param();
-    return result;
-}
+// /// cmd ::= print | call | set | sub
+// AST::Node::Ptr Parser::cmd()
+// {
+//     AST::Node::Ptr result;
 
-/// call ::= CALL SPACE ID
-std::unique_ptr<AST::Node> Parser::call()
-{
-    auto result = construct<AST::UnaryOp>();
-    eat(TT::CALL);
-    eat(TT::SPACE);
-    result->op_ = construct<AST::Param>();
-    eat(TT::ID);
+//   if(result = tryParse(&Parser::print); result)
+//   {
+//   }
+//   else if(result = tryParse(&Parser::call); result)
+//   {
+//   }
+//   else if(result = tryParse(&Parser::set); result)
+//   {
+//   }
+//   else if(result = tryParse(&Parser::sub); result)
+//   {
+//   }
 
-    return result;
-}
+//   if(!result)
+//   {
+//       throw unexpectedToken("cmd");
+//   }
 
-/// set ::= SET SPACE ID SPACE param
-std::unique_ptr<AST::Node> Parser::set()
-{
-    auto result = construct<AST::BinOp>();
-    auto& binop = *result;
-    eat(TT::SET);
-    eat(TT::SPACE);
-
-    binop.op1_ = construct<AST::Param>();
-    eat(TT::ID);
-
-    eat(TT::SPACE);
-    binop.op2_ = param();
-
-    return result;
-}
-
-/// sub ::= SUB SPACE ID
-std::unique_ptr<AST::Node> Parser::sub()
-{
-    auto result = construct<AST::ProcDecl>();
-    eat(TT::SUB);
-    eat(TT::SPACE);
-
-    result->name_ = currToken_.value_;
-    eat(TT::ID);
-
-    return result;
-}
-
-/// param ::= ID | integer
-std::unique_ptr<AST::Node> Parser::param()
-{
-    if (currToken_.type_ == TT::ID)
-    {
-        auto result = construct<AST::Param>();
-        eat(TT::ID);
-        return result;
-    }
-    else
-    {
-        return integer();
-    }
-}
-
-/// integer ::= (PLUS | MINUS)? NUM
-std::unique_ptr<AST::Node> Parser::integer()
-{
-    std::string value;
-    if (currToken_.type_ == TT::PLUS)
-    {
-        eat(TT::PLUS);
-    }
-    else if (currToken_.type_ == TT::MINUS)
-    {
-        eat(TT::MINUS);
-        value.append("-");
-    }
-
-    value.append(currToken_.value_);
-    auto result = construct<AST::Param>(value);
-    eat(TT::NUM);
-
-    return result;
-}
+//   return result;
+// }
 
 void Parser::eat(TokenType tt)
 {
-    if (tt == currToken_.type_)
+    if(tt == currToken_.type_)
     {
         currToken_ = tokenizer_.getNext();
     }
@@ -168,29 +164,129 @@ void Parser::eat(TokenType tt)
     }
 }
 
+std::string Parser::eatVal(TokenType tt)
+{
+    if(tt == currToken_.type_)
+    {
+        std::string result = currToken_.value_;
+        currToken_         = tokenizer_.getNext();
+        return result;
+    }
+    else
+    {
+        throw unexpectedToken(tt, "eat");
+    }
+}
+
+std::string Parser::eatValueWithSpaces(TokenType tt, EatSpaces policy)
+{
+    switch(policy)
+    {
+        case EatSpaces::Left: {
+            eatAll(TT::SPACE);
+            return eatVal(tt);
+        }
+        break;
+
+        case EatSpaces::Right: {
+            auto result = eatVal(tt);
+            eatAll(TT::SPACE);
+            return result;
+        }
+        break;
+
+        case EatSpaces::Both: {
+            eatAll(TT::SPACE);
+            auto result = eatVal(tt);
+            eatAll(TT::SPACE);
+            return result;
+        }
+        break;
+
+        default: break;
+    }
+}
+
+void Parser::eatWithSpaces(TokenType tt, EatSpaces policy)
+{
+    switch(policy)
+    {
+        case EatSpaces::Left: {
+            eatAll(TT::SPACE);
+            eat(tt);
+        }
+        break;
+
+        case EatSpaces::Right: {
+            eat(tt);
+            eatAll(TT::SPACE);
+        }
+        break;
+
+        case EatSpaces::Both: {
+            eatAll(TT::SPACE);
+            eat(tt);
+            eatAll(TT::SPACE);
+        }
+        break;
+
+        default: break;
+    }
+}
+
 void Parser::eatAll(TokenType tt)
 {
-    while (currToken_.type_ == tt)
+    while(currToken_.type_ == tt)
         eat(tt);
 }
 
-std::runtime_error Parser::unexpectedToken(const char *source)
+void Parser::eatEmptyLines()
+{
+    eatAll(TT::SPACE);
+
+    while(currToken_.type_ == TT::EOL)
+    {
+        eat(TT::EOL);
+        eatAll(TT::SPACE);
+    }
+}
+
+void Parser::checkTokenType(TokenType expected, ValidationSource source)
+{
+    if(currToken_.type_ != expected)
+        throw unexpectedToken(expected, source);
+}
+
+void Parser::checkTokenValue(std::string expected, ValidationSource source)
+{
+    if(currToken_.value_ != expected)
+        throw unexpectedValue(expected, source);
+}
+
+std::runtime_error Parser::unexpectedValue(std::string expected, ValidationSource source)
 {
     std::ostringstream ss;
-    ss << "Unexpected token in line " << tokenizer_.currentLine()
-       << " while parsing '" << source << "'"
+    ss << "Unexpected token value in line " << tokenizer_.currentLine() << " while parsing '" << source << "'"
+       << " [ExpectedValue = '" << expected << "', CurrentToken = " << currToken_ << "]";
+
+    return std::runtime_error(ss.str());
+}
+
+std::runtime_error Parser::unexpectedToken(ValidationSource source)
+{
+    std::ostringstream ss;
+    ss << "Unexpected token in line " << tokenizer_.currentLine() << " while parsing '" << source << "'"
        << " [CurrentToken = " << currToken_ << "]";
 
     return std::runtime_error(ss.str());
 }
 
-std::runtime_error Parser::unexpectedToken(TokenType expected, const char *source)
+std::runtime_error Parser::unexpectedToken(TokenType expected, ValidationSource source)
 {
     std::ostringstream ss;
-    ss << "Unexpected token in line " << tokenizer_.currentLine()
-       << " while parsing '" << source << "'"
+    ss << "Unexpected token in line " << tokenizer_.currentLine() << " while parsing '" << source << "'"
        << " [Expected = " << expected << ", "
-       <<   "Actual = " << currToken_.type_ << "]";
+       << "Actual = " << currToken_.type_ << "]";
 
     return std::runtime_error(ss.str());
 }

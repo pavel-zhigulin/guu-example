@@ -14,18 +14,21 @@ enum class visitor_policy
 template <typename T, visitor_policy = visitor_policy::none>
 struct IVisitor
 {
-    virtual void visit(const T&) = 0;
-    virtual ~IVisitor() = default;
+    virtual void visit(T&) = 0;
+    virtual ~IVisitor()    = default;
 };
 
 template <typename T>
 struct IVisitor<T, visitor_policy::generate_default>
 {
-    virtual void visit(const T&){}
+    virtual void visit(T&)
+    {
+    }
+
     virtual ~IVisitor() = default;
 };
 
-template<visitor_policy vp, typename ...T>
+template <visitor_policy vp, typename... T>
 struct IVisitorOf : public IVisitor<T, vp>...
 {
     using Variant = std::variant<T...>;
@@ -33,6 +36,5 @@ struct IVisitorOf : public IVisitor<T, vp>...
 
     virtual ~IVisitorOf() = default;
 };
-
 
 }

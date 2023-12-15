@@ -8,129 +8,147 @@
 #include <variant>
 #include <vector>
 #include <memory>
+#include <optional>
 
 #include "../util/visitor.h"
 
 namespace Guu::AST
 {
 
-#define NODE_TYPES(_) \
-    _(Root) \
-    _(BinOp) \
-    _(UnaryOp) \
-    _(Param) \
-    _(ProcDecl) \
+#define GUU_NODE_TYPE_VALUES(_)        \
+    _(Root, "Root node")               \
+    _(BinOp, "Binary operations")      \
+    _(UnaryOp, "Unary operations")     \
+    _(FnDef, "Function definition")    \
+    _(Variable, "Variable definition") \
+    _(TypeId, "Type Declaration")
 
-#define COMMA_RIGHT(x) x,
-#define COMMA_LEFT(x) ,x
-
+// clang-format off
 enum class NodeType
 {
-    NODE_TYPES(COMMA_RIGHT)
+    #define MAKE_ENUM(x, _) x,
+    GUU_NODE_TYPE_VALUES(MAKE_ENUM)
+    #undef MAKE_ENUM
 };
+
+// clang-format on
 
 struct Node
 {
-    explicit Node(Token t, NodeType nt, size_t line) : type_(nt), token_(std::move(t)), line_(line) {}
-
-    Node(const Node&) = delete;
-    Node& operator=(const Node&) = delete;
-
-    Node(Node&&) = delete;
-    Node& operator=(Node&&) = delete;
+    using Ptr = std::unique_ptr<Node>;
 
     NodeType type_;
-    Token token_;
-    size_t line_;
+
+    Node(NodeType nt) : type_(nt)
+    {
+    }
+
+    Node(const Node&)            = delete;
+    Node& operator=(const Node&) = delete;
+    Node(Node&&)                 = delete;
+    Node& operator=(Node&&)      = delete;
 
     virtual ~Node() = default;
 };
 
-#define NODE_CONSTRUCTOR(x) x(Token t, size_t line) : Node(std::move(t), NodeType::x, line)
+using NodeVec = std::vector<Node::Ptr>;
 
 struct Root : Node
 {
-    NODE_CONSTRUCTOR(Root) {}
-    std::vector<std::unique_ptr<Node>> children_;
+    Root() : Node(NodeType::Root)
+    {
+    }
+
+    NodeVec children_;
 };
 
 struct BinOp : Node
 {
-    NODE_CONSTRUCTOR(BinOp) {}
-    std::unique_ptr<Node> op1_;
-    std::unique_ptr<Node> op2_;
+    BinOp() : Node(NodeType::BinOp)
+    {
+    }
+
+    Node::Ptr op1_;
+    Node::Ptr op2_;
 };
 
 struct UnaryOp : Node
 {
-    NODE_CONSTRUCTOR(UnaryOp) {}
-    std::unique_ptr<Node> op_;
-};
-
-struct Param : Node
-{
-    NODE_CONSTRUCTOR(Param) {}
-    Param(Token t, size_t line, std::string val) : Param(t, line)
+    UnaryOp() : Node(NodeType::UnaryOp)
     {
-        value_ = std::move(val);
     }
 
-    std::string value_ = token_.value_;
+    Node::Ptr op_;
 };
 
-struct ProcDecl : Node
+struct TypeId : Node
 {
-    NODE_CONSTRUCTOR(ProcDecl) {}
-    std::string name_;
+    TypeId(std::string tname) : Node(NodeType::TypeId), tname_(std::move(tname)), isArray_(false), arraySize_("0")
+    {
+    }
+
+    std::string tname_;
+    bool isArray_;
+    std::string arraySize_;
 };
 
-#undef NODE_CONSTRUCTOR
+struct FnDef : Node
+
+{
+    FnDef(std::string id, Node::Ptr retTypeId, NodeVec params)
+        : Node(NodeType::FnDef), id_(std::move(id)), retTypeId_(std::move(retTypeId)), params_(std::move(params))
+    {
+    }
+
+    std::string id_;
+    Node::Ptr retTypeId_;
+    NodeVec params_;
+    NodeVec statements_;
+};
+
+struct Variable : Node
+{
+    Variable(std::string id, Node::Ptr typeId)
+        : Node(NodeType::Variable), id_(std::move(id)), typeId_(std::move(typeId))
+    {
+    }
+
+    std::string id_;
+    Node::Ptr typeId_;
+    std::optional<std::string> value;
+};
 
 namespace detail
 {
-    using BaseVisitor =
-        util::IVisitorOf<
-            util::visitor_policy::generate_default
-            NODE_TYPES(COMMA_LEFT)
-        >;
+// clang-format off
+#define ADD_TO_TEMPLATE(nodeType, _) , nodeType
+using BaseVisitor = util::IVisitorOf<
+    util::visitor_policy::generate_default
+    GUU_NODE_TYPE_VALUES(ADD_TO_TEMPLATE)
+>;
+#undef ADD_TO_TEMPLATE
+// clang-format on
 }
 
-struct Visitor
-    : public detail::BaseVisitor
+struct Visitor : public detail::BaseVisitor
 {
     using detail::BaseVisitor::visit;
 
-    void visit(const Node& n)
+    void visit(Node& n)
     {
-#ifdef __MSC_VER
-#pragma warning( push )
-#pragma warning( error: 4062)
-#endif
-
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic error "-Wswitch"
-#endif
-
-#define CASE(x) case NodeType::x: visit(static_cast<const x&>(n)); break;
-        switch (n.type_)
+        // clang-format off
+        switch(n.type_)
         {
-            NODE_TYPES(CASE)
+            #define CALL_VISIT(x,_) case NodeType::x: visit(static_cast<x&>(n)); break;
+            GUU_NODE_TYPE_VALUES(CALL_VISIT)
+            #undef CALL_VISIT
         }
-#undef CASE
-
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
-#endif
-
-#ifdef __MSC_VER
-#pragma warning( pop )
-#endif
+        // clang-format on
     }
 
-    void visit(const Root& r)
+    void visit(Root& r) override
     {
-        for(const auto& c : r.children_)
+        for(const auto& c: r.children_)
         {
             visit(*c);
         }
@@ -139,52 +157,53 @@ struct Visitor
     virtual ~Visitor() = default;
 };
 
-class Printer
-    : public Visitor
+class Printer : public Visitor
 {
     static constexpr int INDENT_STEP = 2;
 
 public:
     using Visitor::visit;
 
-    Printer(std::ostream& os)
-        : os_(os)
-    {}
+    Printer(std::ostream& os) : os_(os)
+    {
+    }
 
     ~Printer() override = default;
 
-    void print(const Node& node)
+    void print(Node& node)
     {
         indent_ = 0;
         visit(node);
     }
 
-    std::ostream& os() { return os_;  }
+    std::ostream& os()
+    {
+        return os_;
+    }
 
 private:
-    void visit(const Root& program) override;
-    void visit(const ProcDecl& sub) override;
-    void visit(const UnaryOp& op) override;
-    void visit(const BinOp& binop) override;
-    void visit(const Param& param) override;
+    // clang-format off
+    #define OVERRIDE_VISIT(node, _) void visit(node& program) override;
+    GUU_NODE_TYPE_VALUES(OVERRIDE_VISIT)
+    #undef OVERRIDE_VISIT
+    // clang-format on
 
 private:
     void indent();
-    void addIndent() { indent_ += INDENT_STEP; }
-    void subIndent() { indent_ -= INDENT_STEP; }
+
+    void addIndent()
+    {
+        indent_ += INDENT_STEP;
+    }
+
+    void subIndent()
+    {
+        indent_ -= INDENT_STEP;
+    }
 
 private:
     std::ostream& os_;
     int indent_ = 0;
 };
-
-#ifdef SAVE_NODE_TYPES
-#undef SAVE_NODE_TYPES
-#else
-#undef NODE_TYPES
-#endif
-
-#undef COMMA_LEFT
-#undef COMMA_RIGHT
 
 }

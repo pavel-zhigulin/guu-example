@@ -6,71 +6,75 @@
 #include <iosfwd>
 #include <stdexcept>
 
-/// Guu:
-/// ============
-/// Where to check:
-///     https://mdkrajnak.github.io/ebnftest/
-/// Grammar:
-///     program    ::= statement (NEWLINE+ statement)*
-///     statement  ::= SPACE* cmd SPACE*
-///     cmd        ::= print | call | set | sub
-///     print      ::= PRINT SPACE param
-///     call       ::= CALL SPACE ID
-///     set        ::= SET SPACE ID SPACE param
-///     sub        ::= SUB SPACE ID
-///     param      ::= ID | integer
-///     integer    ::= (PLUS | MINUS)? NUM
-///     SUB        ::= "sub"
-///     PRINT      ::= "print"
-///     SET        ::= "set"
-///     CALL       ::= "call"
-///     NUM        ::= #"[0-9]+"
-///     ID         ::= #"[a-zA-Z][a-zA-z0-9]+"
-///     NEWLINE    ::= '\n'
-///     SPACE      ::= ' '
-///     PLUS       ::= '+'
-///     MINUS      ::= '-'
-
 namespace Guu
 {
+using ValidationSource = const char*;
+
 class Parser
 {
     using TT = TokenType;
 
+    enum class EatSpaces
+    {
+        Left,
+        Right,
+        Both,
+    };
+
 public:
-    Parser(Tokenizer t)
-        : tokenizer_(std::move(t))
-        , currToken_(tokenizer_.getNext())
+    Parser(Tokenizer t) : tokenizer_(std::move(t)), currToken_(tokenizer_.getNext())
     {
     }
 
-    std::unique_ptr<AST::Node> buildAST() { return program();  }
-
-private:
-    std::unique_ptr<AST::Node> program();
-    std::unique_ptr<AST::Node> statement();
-    std::unique_ptr<AST::Node> cmd();
-    std::unique_ptr<AST::Node> print();
-    std::unique_ptr<AST::Node> call();
-    std::unique_ptr<AST::Node> set();
-    std::unique_ptr<AST::Node> sub();
-    std::unique_ptr<AST::Node> param();
-    std::unique_ptr<AST::Node> integer();
-
-private:
-    template<typename Node, typename ...Args>
-    std::unique_ptr<Node> construct(Args... args)
+    AST::Node::Ptr buildAST()
     {
-        return std::make_unique<Node>(currToken_, tokenizer_.currentLine(), args...);
+        return program();
     }
 
-    std::unique_ptr<AST::Node> tryParse(std::unique_ptr<AST::Node>(Parser::*memFn)());
+private:
+    AST::Node::Ptr program();
+    AST::Node::Ptr fn();
+    AST::Node::Ptr fn_arg();
+    AST::Node::Ptr statement();
+    AST::Node::Ptr type_id();
 
+private:
+    template <typename Node, typename... Args>
+    auto construct(Args... args)
+    {
+        return std::make_unique<Node>(std::forward<Args>(args)...);
+    }
+
+    AST::Node::Ptr tryParse(AST::Node::Ptr (Parser::*memFn)());
+
+    template <typename... Args>
+    void eat(TokenType tt, Args... rest)
+    {
+        eat(tt);
+        eat(rest...);
+    }
+
+    template <typename... Args>
+    void eatWithSpaces(TokenType tt, Args... rest)
+    {
+        eatWithSpaces(tt, EatSpaces::Left);
+        eatWithSpaces(rest...);
+    }
+
+    void eatEmptyLines();
     void eat(TokenType tt);
     void eatAll(TokenType tt);
+    void eatWithSpaces(TokenType tt, EatSpaces policy = EatSpaces::Left);
 
-    std::runtime_error unexpectedToken(const char* source);
-    std::runtime_error unexpectedToken(TokenType expected, const char* source);
+    std::string eatVal(TokenType tt);
+    std::string eatValueWithSpaces(TokenType tt, EatSpaces policy = EatSpaces::Left);
+
+    void checkTokenType(TokenType tt, ValidationSource source);
+    void checkTokenValue(std::string value, ValidationSource source);
+
+    std::runtime_error unexpectedValue(std::string expected, ValidationSource source);
+    std::runtime_error unexpectedToken(ValidationSource source);
+    std::runtime_error unexpectedToken(TokenType expected, ValidationSource source);
 
 private:
     Tokenizer tokenizer_;

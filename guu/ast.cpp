@@ -5,7 +5,7 @@
 namespace Guu::AST
 {
 
-void Printer::visit(const Root& root)
+void Printer::visit(Root& root)
 {
     indent();
     os() << "(Root)" << std::endl;
@@ -13,45 +13,54 @@ void Printer::visit(const Root& root)
     addIndent();
     for(size_t i = 0; i < root.children_.size(); ++i)
     {
-        visit( *root.children_[i].get() );
+        visit(*root.children_[i].get());
     }
 
     subIndent();
 }
 
-void Printer::visit(const ProcDecl& proc)
+void Printer::visit(FnDef& proc)
 {
     indent();
-    os() << "(ProcDecl '" << proc.name_ << "')" << std::endl;
-}
+    os() << "(FnDef id = '" << proc.id_ << "', retTypeId = '";
+    visit(*proc.retTypeId_);
+    os() << "')" << std::endl;
 
-void Printer::visit(const UnaryOp& op)
-{
-    indent();
-    os() << "(UnaryOp '" << op.token_.value_ << "')" << std::endl;
     addIndent();
-    assert(op.op_);
-    visit(*op.op_);
+    for(auto& arg: proc.params_)
+    {
+        visit(*arg);
+    }
     subIndent();
 }
 
-void Printer::visit(const BinOp& binop)
+void Printer::visit(Variable& proc)
 {
     indent();
-    os() << "(BinOp " << binop.token_.value_ << ")" << std::endl;
-    addIndent();
-    assert(binop.op1_);
-    visit(*binop.op1_);
-
-    assert(binop.op2_);
-    visit(*binop.op2_);
-    subIndent();
+    os() << "(Variable id = '" << proc.id_ << "', typeId = '";
+    visit(*proc.typeId_);
+    os() << "')" << std::endl;
 }
 
-void Printer::visit(const Param& param)
+void Printer::visit(TypeId& typeId)
+{
+    os() << typeId.tname_;
+    if(typeId.isArray_)
+    {
+        os() << "[" << typeId.arraySize_ << "]";
+    }
+}
+
+void Printer::visit(UnaryOp&)
 {
     indent();
-    os() << "(Param<" << param.token_.type_ << "> '" << param.value_ << "')" << std::endl;
+    os() << "(UnaryOp)" << std::endl;
+}
+
+void Printer::visit(BinOp&)
+{
+    indent();
+    os() << "(BinOp)" << std::endl;
 }
 
 void Printer::indent()
